@@ -1,5 +1,5 @@
 """
-coords_miner.py - Змейка на EAST (X увеличивается)
+coords_miner_back.py - Змейка на WEST (X уменьшается) - ОБРАТНЫЙ ХОД
 
 SHIFT НИКОГДА НЕ ОТПУСКАЕТСЯ! (кроме еды)
 
@@ -26,10 +26,6 @@ AUTO_MODE = args.auto
 # ========== НАСТРОЙКИ ==========
 
 PICO_PORT = "COM4"
-
-# Стартовые координаты
-START_X = -1333.3
-START_Z = 783.3
 
 # Длина туннеля
 TUNNEL_LENGTH = 24
@@ -61,7 +57,7 @@ TURN_AGGRESSIVE = 2.0
 MAX_TURN_ATTEMPTS = 30
 
 # 🔄 РЕСПА|УН ДЕТЕКЦИЯ
-RESPAWN_Y_THRESHOLD = 120  # Если Y >= этого - запускаем respawn handler
+RESPAWN_Y_THRESHOLD = 120
 
 TEMP_SCREENSHOT = "screen.png"
 VERBOSE = True
@@ -72,6 +68,7 @@ RESPAWN_FLAG = False
 NORTH = 180
 SOUTH = 0
 EAST = -90
+WEST = 90
 
 
 def log(msg):
@@ -92,7 +89,7 @@ def keyboard_listener():
         pass
 
 
-class SnakeMiner:
+class SnakeMinerBack:
     def __init__(self):
         self.pico = PicoController(PICO_PORT)
         self.window = None
@@ -105,9 +102,9 @@ class SnakeMiner:
         self.passes = 0
         self.next_eat = 0
         
-        # Границы Z
-        self.z_north = START_Z - TUNNEL_LENGTH
-        self.z_south = START_Z
+        # Границы Z (будут установлены при старте)
+        self.z_north = 0
+        self.z_south = 0
     
     def emergency_stop(self):
         print("\n🛑 СТОП!")
@@ -151,7 +148,6 @@ class SnakeMiner:
         return False
     
     def check_respawn(self):
-        """Проверяет респаун по Y"""
         global RESPAWN_FLAG
         if self.y >= RESPAWN_Y_THRESHOLD:
             print(f"\n🔄 РЕСПА|УН! Y={self.y:.1f}")
@@ -178,16 +174,16 @@ class SnakeMiner:
             dir_name = "South"
         elif abs(target_yaw + 90) < 10:
             dir_name = "East"
+        elif abs(target_yaw - 90) < 10:
+            dir_name = "West"
         else:
             dir_name = f"{target_yaw}°"
         
         print(f"🔄 Поворот на {dir_name} ({target_yaw}°)...")
         
-        # Отпускаем ТОЛЬКО W и ЛКМ! SHIFT держим!
         self.pico.release_key("W")
-        self.pico.release()  # ЛКМ
+        self.pico.release()
         time.sleep(0.02)
-        # НЕ трогаем SHIFT - он уже зажат!
         
         for attempt in range(MAX_TURN_ATTEMPTS):
             if STOP_FLAG or RESPAWN_FLAG:
@@ -226,13 +222,11 @@ class SnakeMiner:
         return False
     
     def mine_north(self):
-        """Копаем на North - SHIFT зажат всегда"""
         global STOP_FLAG, RESPAWN_FLAG
         
         target_z = self.z_north
         print(f"⛏️ [North] Копаю до Z={target_z:.1f}...")
         
-        # Добавляем W и ЛКМ (SHIFT уже зажат)
         self.pico.hold_key("W")
         time.sleep(0.02)
         self.pico.hold_left()
@@ -260,21 +254,18 @@ class SnakeMiner:
             
             if time.time() >= self.next_eat:
                 self.eat()
-                # После еды SHIFT уже зажат в eat()
                 self.pico.hold_key("W")
                 time.sleep(0.02)
                 self.pico.hold_left()
             
             time.sleep(0.15)
         
-        # Отпускаем ТОЛЬКО W и ЛКМ!
         self.pico.release_key("W")
         self.pico.release()
         time.sleep(0.05)
         return True
     
     def mine_south(self):
-        """Копаем на South - SHIFT зажат всегда"""
         global STOP_FLAG, RESPAWN_FLAG
         
         target_z = self.z_south
@@ -318,8 +309,8 @@ class SnakeMiner:
         time.sleep(0.05)
         return True
     
-    def shift_east(self):
-        """Сдвиг на East - SHIFT зажат"""
+    def shift_west(self):
+        """Сдвиг на WEST (X уменьшается) - SHIFT зажат"""
         global STOP_FLAG, RESPAWN_FLAG
         
         if STOP_FLAG or RESPAWN_FLAG:
@@ -330,9 +321,8 @@ class SnakeMiner:
         if self.check_respawn():
             return False
         
-        print(f"➡️ Сдвиг East: копаю {SHIFT_MINE_TIME}с + иду {SHIFT_WALK_TIME}с")
+        print(f"⬅️ Сдвиг West: копаю {SHIFT_MINE_TIME}с + иду {SHIFT_WALK_TIME}с")
         
-        # SHIFT уже зажат!
         self.pico.hold_left()
         time.sleep(SHIFT_MINE_TIME)
         
@@ -348,13 +338,11 @@ class SnakeMiner:
         return True
     
     def eat(self):
-        """Еда - единственное место где отпускаем SHIFT"""
         if STOP_FLAG:
             return
         
         print("🍖 Ем...")
         
-        # Тут отпускаем всё
         self.pico.release_key("W")
         self.pico.release_key("SHIFT")
         self.pico.release()
@@ -369,18 +357,23 @@ class SnakeMiner:
         self.pico.slot(PICKAXE_SLOT)
         time.sleep(0.1)
         
-        # Сразу зажимаем SHIFT обратно!
         self.pico.hold_key("SHIFT")
         
         self.next_eat = time.time() + EAT_INTERVAL
         print("✅ Поел!")
     
-    def run_snake(self):
-        """Главный цикл - SHIFT зажат с самого начала"""
+    def run_snake_back(self):
+        """Змейка на WEST (обратно)"""
         global STOP_FLAG, RESPAWN_FLAG
         
-        # ЗАЖИМАЕМ SHIFT И ДЕРЖИМ!
         self.pico.hold_key("SHIFT")
+        
+        # Устанавливаем границы Z от текущей позиции
+        self.update_pos()
+        self.z_south = self.z
+        self.z_north = self.z - TUNNEL_LENGTH
+        
+        print(f"📍 Границы Z: {self.z_south:.1f} ↔ {self.z_north:.1f}")
         
         pass_num = 0
         
@@ -388,7 +381,7 @@ class SnakeMiner:
             pass_num += 1
             
             print(f"\n{'='*50}")
-            print(f"🐍 ПРОХОД #{pass_num} [→ EAST]")
+            print(f"🐍 ПРОХОД #{pass_num} [← WEST]")
             print(f"{'='*50}")
             
             # ШАГ 1: North
@@ -398,12 +391,13 @@ class SnakeMiner:
             if STOP_FLAG or RESPAWN_FLAG:
                 break
             
-            if not self.turn_to_yaw(EAST):
+            # Поворот на WEST (не East!)
+            if not self.turn_to_yaw(WEST):
                 break
             if STOP_FLAG or RESPAWN_FLAG:
                 break
             
-            if not self.shift_east():
+            if not self.shift_west():
                 break
             if STOP_FLAG or RESPAWN_FLAG:
                 break
@@ -420,12 +414,12 @@ class SnakeMiner:
             if STOP_FLAG or RESPAWN_FLAG:
                 break
             
-            if not self.turn_to_yaw(EAST):
+            if not self.turn_to_yaw(WEST):
                 break
             if STOP_FLAG or RESPAWN_FLAG:
                 break
             
-            if not self.shift_east():
+            if not self.shift_west():
                 break
             if STOP_FLAG or RESPAWN_FLAG:
                 break
@@ -439,7 +433,6 @@ class SnakeMiner:
             print(f"\n✅ Проход #{pass_num} готов!")
     
     def launch_respawn_handler(self):
-        """Запускает обработчик респауна"""
         print("\n🔄 Запускаю coords_miner_respawn.py...")
         time.sleep(0.5)
         self.pico.close()
@@ -449,8 +442,7 @@ class SnakeMiner:
         global STOP_FLAG, RESPAWN_FLAG
         
         print("="*50)
-        print("🐍 SNAKE MINER → EAST")
-        print(f"   Старт: X={START_X} Z={START_Z}")
+        print("🐍 SNAKE MINER ← WEST (ОБРАТНО)")
         print(f"   Туннель: {TUNNEL_LENGTH} блоков")
         print(f"   Респаун: Y >= {RESPAWN_Y_THRESHOLD}")
         print("="*50)
@@ -493,7 +485,7 @@ class SnakeMiner:
         start = time.time()
         
         try:
-            self.run_snake()
+            self.run_snake_back()
         except KeyboardInterrupt:
             pass
         finally:
@@ -511,5 +503,5 @@ class SnakeMiner:
 
 
 if __name__ == "__main__":
-    bot = SnakeMiner()
+    bot = SnakeMinerBack()
     bot.run()
